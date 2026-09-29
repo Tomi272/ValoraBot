@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from typing import Any
 
 from src.core.database import get_db
+from src.core.security import create_access_token
 from .service import UserService
 from .schema import UserCreate, UserResponse, LoginRequest, LoginResponse
 
@@ -59,30 +60,30 @@ def register_user(
 def login(
     credentials: LoginRequest,
     db: Session = Depends(get_db)
-) -> Any:
+) -> LoginResponse:
     """
     Endpoint para autenticación. Verifica la existencia del usuario, valida el hash 
     de la contraseña y devuelve un token de acceso firmado en formato JWT.
     """
     service = UserService(db)
     try:
-        # Delegación de verificación de hash y firma de token al servicio
-        auth_data = service.authenticate_user(
-            email=credentials.email,
-            password=credentials.password
-        )
-        return auth_data
-
-    except ValueError as ve:
-        # Retorna 401 Unauthorized si el correo o la contraseña son incorrectos
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=str(ve),
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    except RuntimeError as re:
-        # Retorna 500 para errores internos de servidor
+        user = service.authenticate_user(credentials.email, credentials.password)
+    except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error interno del servidor durante la autenticación."
+        ) from exc
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenciales inválidas.",
+            headers={"WWW-Authenticate": "Bearer"},
         )
+
+    role: str = user.plan_type.value
+    return LoginResponse(
+        access_token=create_access_token(subject=str(user.id), role=role),
+        token_type="bearer",
+        role=role,
+    )

@@ -8,7 +8,12 @@ from src.modules.identity.model import PlanType
 class UserCreate(BaseModel):
     """Esquema para la creación/registro de un usuario."""
     email: EmailStr
-    password: str = Field(..., min_length=8, description="Contraseña de al menos 8 caracteres")
+    password: str = Field(
+        ...,
+        min_length=8,
+        max_length=72,
+        description="Contraseña de entre 8 y 72 caracteres"
+    )
     plan_type: Optional[PlanType] = PlanType.CONSUMIDOR
 
 
@@ -32,3 +37,4 @@ class LoginResponse(BaseModel):
     """Esquema de respuesta tras autenticación exitosa con JWT."""
     access_token: str
     token_type: str = "bearer"
+    role: str

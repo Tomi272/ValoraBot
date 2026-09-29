@@ -2,9 +2,11 @@
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from typing import Optional
+from src.core.security import get_password_hash, verify_password
 from .model import User, PlanType
 from .schema import UserCreate
-# from src.core.security import get_password_hash # TODO: Implementar hashing
+
+_DUMMY_HASH: str = get_password_hash("señuelo-no-usar")
 
 class UserService:
     def __init__(self, db: Session):
@@ -16,8 +18,7 @@ class UserService:
         Maneja explícitamente excepciones de integridad (ej. email duplicado).
         """
         try:
-            # TODO: Sustituir por lógica real de hashing (ej. Passlib / bcrypt)
-            hashed_pw = f"hashed_{user_in.password}" 
+            hashed_pw: str = get_password_hash(user_in.password)
             
             new_user = User(
                 email=user_in.email,
@@ -50,3 +51,10 @@ class UserService:
         except Exception as e:
             # TODO: Log error
             raise RuntimeError("Error al consultar el usuario.")
+
+    def authenticate_user(self, email: str, password: str) -> Optional[User]:
+        user: Optional[User] = self.get_user_by_email(email)
+        if user is None:
+            verify_password(password, _DUMMY_HASH)
+            return None
+        return user if verify_password(password, user.password_hash) else None
