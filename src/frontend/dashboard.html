@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ValoraBot Enterprise - Monitoreo de Precios</title>
+    <style>
+        :root {
+            --bg-main: #0f172a;
+            --bg-card: #1e293b;
+            --bg-input: #334155;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --color-primary: #3b82f6;
+            --color-success: #10b981;
+            --color-danger: #ef4444;
+            --border-color: #475569;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-main);
+            color: var(--text-main);
+            margin: 0;
+            padding: 24px;
+        }
+
+        .container { max-width: 960px; margin: 0 auto; }
+        .card { background: var(--bg-card); padding: 24px; border-radius: 8px; margin-bottom: 24px; border: 1px solid var(--border-color); }
+        .form-group { margin-bottom: 16px; }
+        label { display: block; margin-bottom: 6px; font-size: 0.875rem; color: var(--text-muted); }
+        input[type="url"], input[type="number"] {
+            width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color);
+            background: var(--bg-input); color: #fff; box-sizing: border-box;
+        }
+        button {
+            background-color: var(--color-primary); color: #fff; border: none; padding: 10px 18px;
+            border-radius: 6px; font-weight: 600; cursor: pointer; transition: background 0.2s;
+        }
+        button:hover { background-color: #2563eb; }
+        button:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+        th, td { border-bottom: 1px solid var(--border-color); padding: 12px; text-align: left; font-size: 0.875rem; }
+        th { background-color: var(--bg-input); color: var(--text-muted); }
+
+        .feedback { margin-top: 12px; font-size: 0.875rem; font-weight: 500; }
+        .feedback.error { color: var(--color-danger); }
+        .feedback.success { color: var(--color-success); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Panel de Productos &amp; Alertas</h2>
+        
+        <div class="card">
+            <h3>Registrar Nuevo Producto</h3>
+            <form id="product-form">
+                <div class="form-group">
+                    <label for="product_url">URL del Producto (E-commerce / Marketplace):</label>
+                    <input type="url" id="product_url" placeholder="https://www.mercadolibre.com.ar/p/MLA1234567" required />
+                </div>
+                <div class="form-group">
+                    <label for="target_price">Precio Objetivo ($):</label>
+                    <input type="number" id="target_price" step="0.01" min="0.01" placeholder="15000.00" />
+                </div>
+                <button type="submit" id="submit-btn">Guardar y Monitorear</button>
+                <div id="form-feedback" class="feedback"></div>
+            </form>
+        </div>
+
+        <div class="card">
+            <h3>Mis Productos Monitoreados</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>URL</th>
+                        <th>Precio Actual</th>
+                        <th>Precio Objetivo</th>
+                        <th>Fecha Creación</th>
+                    </tr>
+                </thead>
+                <tbody id="products-table-body">
+                    <tr><td colspan="4">Cargando productos...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script src="dashboard.js"></script>
+</body>
+</html>
