@@ -5,7 +5,7 @@ from pydantic import BaseModel, HttpUrl, Field, field_serializer
 
 
 class AlertBase(BaseModel):
-    target_price: float = Field(..., gt=0, description="Precio objetivo para la alerta")
+    target_price: Optional[float] = Field(default=None, gt=0, description="Precio objetivo para la alerta")
 
 
 class AlertCreate(AlertBase):

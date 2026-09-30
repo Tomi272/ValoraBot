@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from src.modules.products.model import Product
+from src.modules.products.model import Alert, Product
 from src.tests.conftest import QueryCounter
 
 PRODUCTS_URL: str = "/api/v1/products"
@@ -76,6 +76,25 @@ def test_create_same_url_twice_updates_price_without_duplicating(
     items: list[dict] = client.get(PRODUCTS_URL, headers=auth_headers).json()
     assert len(items) == 1
     assert float(items[0]["target_price"]) == 12000.0
+
+
+def test_same_global_product_has_separate_user_alerts(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    other_auth_headers: dict[str, str],
+    db_session: Session,
+) -> None:
+    first = _create(client, auth_headers, price=15000.0).json()
+    second = _create(client, other_auth_headers, price=9000.0).json()
+
+    assert first["id"] == second["id"]
+    assert db_session.query(Product).count() == 1
+    assert db_session.query(Alert).count() == 2
+
+    first_products = client.get(PRODUCTS_URL, headers=auth_headers).json()
+    second_products = client.get(PRODUCTS_URL, headers=other_auth_headers).json()
+    assert float(first_products[0]["target_price"]) == 15000.0
+    assert float(second_products[0]["target_price"]) == 9000.0
 
 
 @pytest.mark.parametrize(
@@ -171,7 +190,7 @@ def test_list_does_not_have_n_plus_one(
     assert query_counter.count == queries_with_one
 
 
-def test_deleting_user_cascades_to_products(
+def test_deleting_user_cascades_to_alerts_but_keeps_global_product(
     client: TestClient,
     auth_headers: dict[str, str],
     db_session: Session,
@@ -180,6 +199,8 @@ def test_deleting_user_cascades_to_products(
 
     _create(client, auth_headers)
     assert db_session.query(Product).count() == 1
+    assert db_session.query(Alert).count() == 1
     db_session.delete(db_session.query(User).first())
     db_session.commit()
-    assert db_session.query(Product).count() == 0
+    assert db_session.query(Alert).count() == 0
+    assert db_session.query(Product).count() == 1
