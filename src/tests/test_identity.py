@@ -17,6 +17,16 @@ def test_register_user_success(client):
     assert "id" in data
 
 
+def test_register_cannot_self_assign_admin(client):
+    payload = {
+        "email": "self-assigned-admin@valorabot.io",
+        "password": "PasswordSeguro123!",
+        "plan_type": "admin",
+    }
+    response = client.post("/api/v1/auth/register", json=payload)
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
 def test_register_duplicate_email_fails(client):
     """Verifica que no se permitan registros con correos electrónicos duplicados."""
     payload = {

@@ -1,12 +1,13 @@
 # Archivo: src/modules/identity/schema.py
 from uuid import UUID
-from typing import Optional
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from src.modules.identity.model import PlanType
 
 
 class UserCreate(BaseModel):
     """Esquema para la creación/registro de un usuario."""
+    model_config = ConfigDict(extra="forbid")
+
     email: EmailStr
     password: str = Field(
         ...,
@@ -14,9 +15,6 @@ class UserCreate(BaseModel):
         max_length=72,
         description="Contraseña de entre 8 y 72 caracteres"
     )
-    plan_type: Optional[PlanType] = PlanType.CONSUMIDOR
-
-
 class UserResponse(BaseModel):
     """Esquema de respuesta pública de datos de usuario."""
     id: UUID

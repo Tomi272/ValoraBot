@@ -1,85 +1,127 @@
-# Archivo: tests/conftest.py
+import os
+
+os.environ["DATABASE_URL"] = "sqlite://"
+os.environ.setdefault("JWT_SECRET_KEY", "t" * 48)
+
+from typing import Callable, Generator
+from unittest.mock import MagicMock
+
 import pytest
-from typing import Generator
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
-from unittest.mock import patch
+from sqlalchemy import Engine, create_engine, event
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
-from src.main import app
 from src.core.database import Base, get_db
-from src.core.security import create_access_token
+from src.main import app
 
-# Base de datos SQLite en memoria para ejecución rápida de tests aislados
-SQLALCHEMY_TEST_DATABASE_URL = "sqlite:///:memory:"
+import src.modules.identity.model  # noqa: F401
+import src.modules.products.model  # noqa: F401
 
-engine = create_engine(
-    SQLALCHEMY_TEST_DATABASE_URL, 
-    connect_args={"check_same_thread": False}
-)
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+REGISTER_URL: str = "/api/v1/auth/register"
+LOGIN_URL: str = "/api/v1/auth/login"
+DEFAULT_PASSWORD: str = "Secreta123!"
 
 
-@pytest.fixture(scope="session", autouse=True)
-def setup_test_database():
-    """Crea la estructura de tablas en la BD de pruebas al iniciar la sesión."""
-    Base.metadata.create_all(bind=engine)
-    yield
-    Base.metadata.drop_all(bind=engine)
+class QueryCounter:
+    def __init__(self) -> None:
+        self.count: int = 0
 
 
 @pytest.fixture
-def db_session() -> Generator[Session, None, None]:
-    """Proporciona una sesión de BD limpia por cada test con Rollback automático."""
-    connection = engine.connect()
-    transaction = connection.begin()
-    session = TestingSessionLocal(bind=connection)
-
-    yield session
-
-    session.close()
-    transaction.rollback()
-    connection.close()
+def engine() -> Generator[Engine, None, None]:
+    """SQLite en memoria aislada por test y compartida entre hilos."""
+    test_engine: Engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(test_engine)
+    yield test_engine
+    Base.metadata.drop_all(test_engine)
+    test_engine.dispose()
 
 
 @pytest.fixture
-def client(db_session: Session) -> Generator[TestClient, None, None]:
-    """Sobreescribe la dependencia get_db de FastAPI y retorna el TestClient."""
-    def _override_get_db():
+def session_factory(engine: Engine) -> sessionmaker[Session]:
+    return sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+
+@pytest.fixture
+def db_session(session_factory: sessionmaker[Session]) -> Generator[Session, None, None]:
+    session: Session = session_factory()
+    try:
+        yield session
+    finally:
+        session.close()
+
+
+@pytest.fixture
+def client(session_factory: sessionmaker[Session]) -> Generator[TestClient, None, None]:
+    def _override_get_db() -> Generator[Session, None, None]:
+        session: Session = session_factory()
         try:
-            yield db_session
+            yield session
         finally:
-            pass
+            session.close()
 
     app.dependency_overrides[get_db] = _override_get_db
-    with TestClient(app) as test_client:
-        yield test_client
-    app.dependency_overrides.clear()
+    try:
+        with TestClient(app) as test_client:
+            yield test_client
+    finally:
+        app.dependency_overrides.clear()
 
 
 @pytest.fixture
-def mock_celery_task():
-    """Mockea la llamada al encolador de Redis / Celery."""
-    with patch("src.modules.products.service.extract_initial_price_task.delay") as mock_delay:
-        yield mock_delay
+def mock_extraction_task(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    """Sustituye el task en el punto donde ProductService lo usa."""
+    mock: MagicMock = MagicMock()
+    monkeypatch.setattr("src.modules.products.service.extract_initial_price_task", mock)
+    return mock
 
 
 @pytest.fixture
-def auth_headers(db_session: Session) -> dict:
-    """Crea un usuario ficticio de prueba y retorna la cabecera Authorization Bearer."""
-    from src.modules.identity.model import User, PlanType
-    from src.core.security import get_password_hash
-    import uuid
+def mock_celery_task(mock_extraction_task: MagicMock) -> MagicMock:
+    """Compatibilidad con los tests existentes que usan el nombre anterior."""
+    return mock_extraction_task.delay
 
-    user_id = uuid.uuid4()
-    test_user = User(
-        id=user_id,
-        email="test.user@valorabot.io",
-        password_hash=get_password_hash("SecretPass123!"),
-        plan_type=PlanType.CONSUMIDOR
-    )
-    db_session.add(test_user)
-    db_session.commit()
 
-    token = create_access_token(data={"sub": str(user_id)})
-    return {"Authorization": f"Bearer {token}"}
+@pytest.fixture
+def create_auth_headers(client: TestClient) -> Callable[[str], dict[str, str]]:
+    def _create(email: str) -> dict[str, str]:
+        register_response = client.post(
+            REGISTER_URL,
+            json={"email": email, "password": DEFAULT_PASSWORD}
+        )
+        assert register_response.status_code == 201, register_response.text
+        login_response = client.post(
+            LOGIN_URL,
+            json={"email": email, "password": DEFAULT_PASSWORD}
+        )
+        assert login_response.status_code == 200, login_response.text
+        return {"Authorization": f"Bearer {login_response.json()['access_token']}"}
+
+    return _create
+
+
+@pytest.fixture
+def auth_headers(create_auth_headers: Callable[[str], dict[str, str]]) -> dict[str, str]:
+    return create_auth_headers("ana@valorabot.com")
+
+
+@pytest.fixture
+def other_auth_headers(create_auth_headers: Callable[[str], dict[str, str]]) -> dict[str, str]:
+    return create_auth_headers("beto@valorabot.com")
+
+
+@pytest.fixture
+def query_counter(engine: Engine) -> Generator[QueryCounter, None, None]:
+    counter: QueryCounter = QueryCounter()
+
+    def _before(conn, cursor, statement, parameters, context, executemany) -> None:  # type: ignore[no-untyped-def]
+        counter.count += 1
+
+    event.listen(engine, "before_cursor_execute", _before)
+    yield counter
+    event.remove(engine, "before_cursor_execute", _before)

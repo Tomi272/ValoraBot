@@ -35,10 +35,16 @@ class ProductCreate(ProductBase):
     target_price: float = Field(..., gt=0, description="Precio objetivo inicial")
 
 
+class CreateProductRequest(BaseModel):
+    product_url: HttpUrl = Field(..., description="URL válida del producto")
+    target_price: Optional[float] = Field(default=None, gt=0, description="Precio objetivo inicial")
+
+
 class ProductResponse(ProductBase):
     id: UUID
     title: Optional[str] = None
     current_price: Optional[float] = None
+    target_price: Optional[float] = None
     created_at: datetime
     alert: Optional[AlertResponse] = None
 

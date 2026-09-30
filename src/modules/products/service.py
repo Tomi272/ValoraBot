@@ -1,8 +1,7 @@
 import logging
-from importlib import import_module
 from uuid import UUID
 from typing import List
-from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+from urllib.parse import urlparse, urlunparse
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
@@ -12,6 +11,13 @@ from src.modules.products.schema import CreateProductRequest
 
 logger = logging.getLogger(__name__)
 
+try:
+    from src.workers.ingestion_tasks import extract_initial_price_task
+except ModuleNotFoundError as e:
+    if e.name not in {"celery", "src.workers", "src.workers.ingestion_tasks"}:
+        raise
+    extract_initial_price_task = None
+
 
 class ProductService:
     def __init__(self, db: Session):
@@ -20,64 +26,29 @@ class ProductService:
     @staticmethod
     def _normalize_url(raw_url: str) -> str:
         parsed = urlparse(raw_url.strip())
-        tracking_params = {
-            "dclid", "fbclid", "gclid", "igshid", "mc_cid", "mc_eid",
-            "msclkid", "yclid",
-        }
-        query_params = [
-            (key, value)
-            for key, value in parse_qsl(parsed.query, keep_blank_values=True)
-            if key.lower() not in tracking_params and not key.lower().startswith("utm_")
-        ]
         clean_path = parsed.path.rstrip("/")
         return urlunparse((
             parsed.scheme,
             parsed.netloc,
             clean_path,
-            parsed.params,
-            urlencode(query_params),
+            "",
+            "",
             "",
         ))
 
     @staticmethod
     def _enqueue_initial_price(product: Product) -> None:
-        try:
-            task_module = import_module("src.workers.ingestion_tasks")
-        except ModuleNotFoundError as e:
-            if e.name in {"src.workers", "src.workers.ingestion_tasks"}:
-                logger.warning(
-                    "Initial price worker is not configured; product_id=%s was saved without enqueueing",
-                    product.id
-                )
-                return
-            logger.exception("Unable to load the initial price worker")
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="No se pudo programar el análisis inicial del producto."
-            ) from e
-        except Exception as e:
-            logger.exception("Unable to load the initial price worker")
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="No se pudo programar el análisis inicial del producto."
-            ) from e
-
-        task = getattr(task_module, "extract_initial_price_task", None)
-        if task is None:
-            logger.error("The initial price worker does not expose its Celery task")
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="No se pudo programar el análisis inicial del producto."
+        if extract_initial_price_task is None:
+            logger.warning(
+                "Initial price worker is not configured; product_id=%s was saved without enqueueing",
+                product.id
             )
+            return
 
         try:
-            task.delay(product_id=str(product.id), url=product.url)
-        except Exception as e:
+            extract_initial_price_task.delay(product_id=str(product.id), url=product.url)
+        except Exception:
             logger.exception("Unable to enqueue initial price extraction for product_id=%s", product.id)
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="No se pudo programar el análisis inicial del producto."
-            ) from e
 
     def create_product(self, user_id: UUID, product_in: CreateProductRequest) -> Product:
         normalized_url = self._normalize_url(str(product_in.product_url))

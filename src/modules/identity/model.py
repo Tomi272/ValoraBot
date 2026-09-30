@@ -2,6 +2,7 @@
 import uuid
 from sqlalchemy import Column, String, Enum
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
 from src.core.database import Base # Asumiendo Base = declarative_base()
 import enum
 
@@ -23,5 +24,4 @@ class User(Base):
     # Control de roles (RBAC)
     plan_type = Column(Enum(PlanType), default=PlanType.CONSUMIDOR, nullable=False)
 
-    # TODO: Relaciones futuras con 'alerts' y 'products' 
-    # alerts = relationship("Alert", back_populates="user")
+    products = relationship("Product", back_populates="user", cascade="all, delete-orphan")

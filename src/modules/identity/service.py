@@ -23,7 +23,7 @@ class UserService:
             new_user = User(
                 email=user_in.email,
                 password_hash=hashed_pw,
-                plan_type=PlanType(user_in.plan_type)
+                plan_type=PlanType.CONSUMIDOR
             )
             
             self.db.add(new_user)
